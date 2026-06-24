@@ -177,6 +177,36 @@ impl D3d {
         }
     }
 
+    pub fn new_shared(hwnd: HWND, width: u32, height: u32, shared: &Self) -> Result<Self, String> {
+        unsafe {
+            let swapchain = create_swapchain(&shared.device, hwnd, width, height)?;
+            let rtv = create_rtv(&shared.device, &swapchain)?;
+            let cb_desc = D3D11_BUFFER_DESC {
+                ByteWidth: std::mem::size_of::<ShaderParams>() as u32,
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
+                ..Default::default()
+            };
+            let mut params = None;
+            shared
+                .device
+                .CreateBuffer(&cb_desc, None, Some(&mut params))
+                .map_err(|e| format!("CreateBuffer(params): {e}"))?;
+            Ok(Self {
+                device: shared.device.clone(),
+                context: shared.context.clone(),
+                swapchain,
+                rtv,
+                vs: shared.vs.clone(),
+                ps: shared.ps.clone(),
+                sampler: shared.sampler.clone(),
+                params: params.unwrap(),
+                width,
+                height,
+            })
+        }
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), String> {
         if width == self.width && height == self.height {
             return Ok(());
@@ -199,7 +229,20 @@ impl D3d {
         Ok(())
     }
 
-    pub fn render(&self, srv: &ID3D11ShaderResourceView, params: ShaderParams) -> Result<(), String> {
+    pub fn render(
+        &self,
+        srv: &ID3D11ShaderResourceView,
+        params: ShaderParams,
+    ) -> Result<(), String> {
+        self.render_with_sync(srv, params, 1)
+    }
+
+    pub fn render_with_sync(
+        &self,
+        srv: &ID3D11ShaderResourceView,
+        params: ShaderParams,
+        sync_interval: u32,
+    ) -> Result<(), String> {
         unsafe {
             let viewport = D3D11_VIEWPORT {
                 TopLeftX: 0.0,
@@ -229,7 +272,7 @@ impl D3d {
             self.context.PSSetShaderResources(0, Some(&[Some(srv.clone())]));
             self.context.Draw(3, 0);
             self.swapchain
-                .Present(1, DXGI_PRESENT(0))
+                .Present(sync_interval, DXGI_PRESENT(0))
                 .ok()
                 .map_err(|e| format!("Present: {e}"))?;
             self.context.PSSetShaderResources(0, Some(&[None]));
@@ -246,6 +289,36 @@ impl D3d {
             Ok(srv.unwrap())
         }
     }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn create_swapchain(
+    device: &ID3D11Device,
+    hwnd: HWND,
+    width: u32,
+    height: u32,
+) -> Result<IDXGISwapChain1, String> {
+    let factory: IDXGIFactory2 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0))
+        .map_err(|e| format!("CreateDXGIFactory2: {e}"))?;
+    let desc = DXGI_SWAP_CHAIN_DESC1 {
+        Width: width,
+        Height: height,
+        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        Stereo: false.into(),
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        BufferCount: 2,
+        Scaling: DXGI_SCALING_STRETCH,
+        SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        AlphaMode: DXGI_ALPHA_MODE_IGNORE,
+        ..Default::default()
+    };
+    factory
+        .CreateSwapChainForHwnd(device, hwnd, &desc, None, None)
+        .map_err(|e| format!("CreateSwapChainForHwnd: {e}"))
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]

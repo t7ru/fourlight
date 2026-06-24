@@ -51,6 +51,7 @@ const ID_FLASHLIGHT: i32 = 103;
 const ID_ZOOM: i32 = 104;
 const ID_RADIUS: i32 = 105;
 const ID_SHADOW: i32 = 106;
+const ID_OBS_OUTPUT: i32 = 107;
 const ID_SAVE: i32 = 1;
 const ID_CANCEL: i32 = 2;
 
@@ -72,6 +73,7 @@ struct Dialog {
     radius_value: HWND,
     shadow: HWND,
     shadow_value: HWND,
+    obs_output: HWND,
     saved: bool,
     font: HFONT,
     title_font: HFONT,
@@ -94,6 +96,7 @@ pub fn run(initial: &Config) -> Option<Config> {
             radius_value: HWND::default(),
             shadow: HWND::default(),
             shadow_value: HWND::default(),
+            obs_output: HWND::default(),
             saved: false,
             font: HFONT::default(),
             title_font: HFONT::default(),
@@ -274,13 +277,24 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
     row_label(hwnd, instance, w!("Radius"), 280, d.font);
     row_label(hwnd, instance, w!("Shadow"), 316, d.font);
 
+    section(hwnd, instance, w!("OBS"), 350, d);
+    d.obs_output = checkbox(
+        hwnd,
+        instance,
+        ID_OBS_OUTPUT,
+        w!("Virtual display for OBS"),
+        M + LABEL_W,
+        346,
+        d.font,
+    );
+
     button(
         hwnd,
         instance,
         ID_CANCEL,
         w!("Cancel"),
         W - M - 188,
-        396,
+        406,
         false,
         d.font,
     );
@@ -290,7 +304,7 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
         ID_SAVE,
         w!("Save"),
         W - M - 92,
-        396,
+        406,
         true,
         d.font,
     );
@@ -304,6 +318,7 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
 
     set_text(d.hotkey, &d.draft.hotkey.display());
     set_checked(d.flashlight, d.draft.flashlight.enabled);
+    set_checked(d.obs_output, d.draft.obs_output.enabled);
     update_values(d);
     set_flashlight_controls(d, d.draft.flashlight.enabled);
 }
@@ -317,6 +332,7 @@ fn read_dialog(d: &mut Dialog) -> Result<(), String> {
     d.draft.flashlight.enabled = checked(d.flashlight);
     d.draft.flashlight.radius = tb_pos(d.radius) as f32;
     d.draft.flashlight.shadow = tb_pos(d.shadow) as f32 / 100.0;
+    d.draft.obs_output.enabled = checked(d.obs_output);
     d.draft.to_hotkey()?;
     Ok(())
 }

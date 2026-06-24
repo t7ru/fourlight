@@ -13,12 +13,12 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_F};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW,
-    LoadCursorW, RegisterClassW, SetCursor, SetForegroundWindow, SetWindowDisplayAffinity,
-    SetWindowLongPtrW, SetWindowPos, ShowCursor, ShowWindow, CS_HREDRAW, CS_VREDRAW,
-    GWLP_USERDATA, HWND_TOPMOST, HTCLIENT, IDC_ARROW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW,
-    WDA_EXCLUDEFROMCAPTURE, WM_KEYDOWN, WM_MOUSEWHEEL, WM_SETCURSOR, WNDCLASSW, WS_CLIPSIBLINGS,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, GetSystemMetrics,
+    GetWindowLongPtrW, LoadCursorW, RegisterClassW, SetCursor, SetForegroundWindow,
+    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowCursor, ShowWindow, CS_HREDRAW,
+    CS_VREDRAW, GWLP_USERDATA, HTCLIENT, HWND_TOPMOST, IDC_ARROW, SM_CXSCREEN, SM_CYSCREEN,
+    SW_HIDE, SW_SHOW, SW_SHOWNA, WDA_EXCLUDEFROMCAPTURE, WM_KEYDOWN, WM_MOUSEWHEEL, WM_SETCURSOR,
+    WNDCLASSW, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 pub const MIN_ZOOM: f32 = 1.0;
@@ -28,6 +28,57 @@ const ZOOM_STEP: f32 = 1.25;
 const ZOOM_LERP: f32 = 16.0;
 
 static REGISTER_CLASS: Once = Once::new();
+
+struct ObsOutput {
+    hwnd: HWND,
+    d3d: D3d,
+}
+
+pub struct ObsOutputWindow {
+    hwnd: HWND,
+}
+
+impl ObsOutputWindow {
+    pub fn new() -> Result<Self, String> {
+        register_class();
+        unsafe {
+            let instance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
+            let monitor = MonitorFromPoint(cursor_point(), MONITOR_DEFAULTTONEAREST);
+            let rect = monitor_rect(monitor);
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+            let hwnd = CreateWindowExW(
+                WS_EX_NOACTIVATE,
+                w!("FourlightObsOutput"),
+                w!("fourlight OBS output"),
+                WS_POPUP | WS_CLIPSIBLINGS,
+                rect.left - width,
+                rect.top,
+                width,
+                height,
+                None,
+                None,
+                Some(instance.into()),
+                None,
+            )
+            .map_err(|e| format!("OBS output window: {e}"))?;
+            let _ = ShowWindow(hwnd, SW_SHOWNA);
+            Ok(Self { hwnd })
+        }
+    }
+
+    pub fn hwnd(&self) -> HWND {
+        self.hwnd
+    }
+}
+
+impl Drop for ObsOutputWindow {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DestroyWindow(self.hwnd);
+        }
+    }
+}
 
 pub struct LiveOverlay {
     hwnd: HWND,
@@ -40,10 +91,12 @@ pub struct LiveOverlay {
     visible: bool,
     closing: bool,
     flashlight: Flashlight,
+    obs_output: Option<ObsOutput>,
+    obs_enabled: bool,
 }
 
 impl LiveOverlay {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(obs_hwnd: Option<HWND>) -> Result<Self, String> {
         register_class();
         unsafe {
             let instance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
@@ -71,6 +124,12 @@ impl LiveOverlay {
                 .map_err(|e| format!("SetWindowDisplayAffinity: {e}"))?;
             let d3d = D3d::new(hwnd, width, height)?;
             let capture = WgcCapture::new(&d3d.device, monitor)?;
+            let obs_output = if let Some(hwnd) = obs_hwnd {
+                Some(create_obs_output(&d3d, rect, hwnd)?)
+            } else {
+                None
+            };
+            let obs_enabled = obs_output.is_some();
 
             Ok(Self {
                 hwnd,
@@ -83,6 +142,8 @@ impl LiveOverlay {
                 visible: false,
                 closing: false,
                 flashlight: Flashlight::from_config(&FlashlightConfig::default()),
+                obs_output,
+                obs_enabled,
             })
         }
     }
@@ -91,8 +152,28 @@ impl LiveOverlay {
         self.visible || self.closing
     }
 
+    pub fn should_tick(&self) -> bool {
+        self.is_active() || self.obs_enabled
+    }
+
     pub fn is_closing(&self) -> bool {
         self.closing
+    }
+
+    pub fn set_obs_output_window(&mut self, hwnd: Option<HWND>) {
+        self.obs_enabled = hwnd.is_some();
+        if let Some(hwnd) = hwnd {
+            if self.obs_output.as_ref().is_some_and(|obs| obs.hwnd == hwnd) {
+                return;
+            }
+            self.obs_output = None;
+            match create_obs_output(&self.d3d, self.rect, hwnd) {
+                Ok(output) => self.obs_output = Some(output),
+                Err(err) => eprintln!("OBS output failed: {err}"),
+            }
+        } else {
+            self.obs_output = None;
+        }
     }
 
     pub fn show(&mut self, target_zoom: f32, fl_cfg: &FlashlightConfig) {
@@ -155,7 +236,7 @@ impl LiveOverlay {
     }
 
     pub fn tick(&mut self, dt: f32) {
-        if !self.is_active() {
+        if !self.should_tick() {
             return;
         }
         if let Err(err) = self.render(dt) {
@@ -166,15 +247,24 @@ impl LiveOverlay {
 
     pub fn sync_user_data(&mut self) {
         unsafe {
-            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, (self as *mut Self).cast::<()>() as isize);
+            SetWindowLongPtrW(
+                self.hwnd,
+                GWLP_USERDATA,
+                (self as *mut Self).cast::<()>() as isize,
+            );
         }
     }
 
     fn render(&mut self, dt: f32) -> Result<(), String> {
-        let t = 1.0 - (-ZOOM_LERP * dt).exp();
-        self.zoom += (self.target_zoom - self.zoom) * t;
-        if (self.zoom - self.target_zoom).abs() < 0.002 {
-            self.zoom = self.target_zoom;
+        if self.is_active() {
+            let t = 1.0 - (-ZOOM_LERP * dt).exp();
+            self.zoom += (self.target_zoom - self.zoom) * t;
+            if (self.zoom - self.target_zoom).abs() < 0.002 {
+                self.zoom = self.target_zoom;
+            }
+        } else {
+            self.zoom = MIN_ZOOM;
+            self.target_zoom = MIN_ZOOM;
         }
 
         if let Some(tex) = self.capture.latest_texture()? {
@@ -185,7 +275,9 @@ impl LiveOverlay {
         let width = (self.rect.right - self.rect.left) as u32;
         let height = (self.rect.bottom - self.rect.top) as u32;
         self.d3d.resize(width, height)?;
-        let Some(srv) = &self.last_srv else { return Ok(()) };
+        let Some(srv) = &self.last_srv else {
+            return Ok(());
+        };
         let cursor = cursor_point();
         let cursor = [
             (cursor.x - self.rect.left) as f32,
@@ -193,24 +285,28 @@ impl LiveOverlay {
         ];
         let offscreen = offscreen_radius(cursor, width as f32, height as f32, self.zoom);
         self.flashlight.update(dt, offscreen);
-        self.d3d.render(
-            srv,
-            ShaderParams {
-                screen: [width as f32, height as f32],
-                source: [size.Width as f32, size.Height as f32],
-                cursor,
-                zoom: self.zoom,
-                radius: self.flashlight.radius,
-                shadow: self.flashlight.max_shadow,
-                flashlight: self.flashlight.visible(offscreen) as u8 as f32,
-                ..Default::default()
-            },
-        )?;
+        let flashlight = self.is_active() && self.flashlight.visible(offscreen);
+        let params = ShaderParams {
+            screen: [width as f32, height as f32],
+            source: [size.Width as f32, size.Height as f32],
+            cursor,
+            zoom: self.zoom,
+            radius: self.flashlight.radius,
+            shadow: self.flashlight.max_shadow,
+            flashlight: flashlight as u8 as f32,
+            ..Default::default()
+        };
+        if self.is_active() {
+            self.d3d.render(srv, params)?;
+        }
+        if self.obs_enabled {
+            if let Some(obs) = &mut self.obs_output {
+                obs.d3d.resize(width, height)?;
+                obs.d3d.render_with_sync(srv, params, 0)?;
+            }
+        }
 
-        if self.closing
-            && self.zoom <= MIN_ZOOM + 0.002
-            && !self.flashlight.visible(offscreen)
-        {
+        if self.closing && self.zoom <= MIN_ZOOM + 0.002 && !self.flashlight.visible(offscreen) {
             unsafe {
                 let _ = ShowWindow(self.hwnd, SW_HIDE);
                 let _ = ShowCursor(true);
@@ -261,19 +357,36 @@ impl Drop for LiveOverlay {
     }
 }
 
+fn create_obs_output(d3d: &D3d, rect: RECT, hwnd: HWND) -> Result<ObsOutput, String> {
+    let width = (rect.right - rect.left) as u32;
+    let height = (rect.bottom - rect.top) as u32;
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOWNA);
+    }
+    Ok(ObsOutput {
+        hwnd,
+        d3d: D3d::new_shared(hwnd, width, height, d3d)?,
+    })
+}
+
 fn register_class() {
     REGISTER_CLASS.call_once(|| unsafe {
         let instance = GetModuleHandleW(None).expect("module handle");
-        let wc = WNDCLASSW {
-            style: CS_HREDRAW | CS_VREDRAW,
-            lpfnWndProc: Some(overlay_wnd_proc),
-            hInstance: instance.into(),
-            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
-            hbrBackground: HBRUSH(std::ptr::null_mut()),
-            lpszClassName: w!("FourlightOverlay"),
-            ..Default::default()
-        };
-        RegisterClassW(&wc);
+        for (class, proc) in [
+            (w!("FourlightOverlay"), overlay_wnd_proc as _),
+            (w!("FourlightObsOutput"), obs_wnd_proc as _),
+        ] {
+            let wc = WNDCLASSW {
+                style: CS_HREDRAW | CS_VREDRAW,
+                lpfnWndProc: Some(proc),
+                hInstance: instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+                hbrBackground: HBRUSH(std::ptr::null_mut()),
+                lpszClassName: class,
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+        }
     });
 }
 
@@ -311,6 +424,16 @@ unsafe extern "system" fn overlay_wnd_proc(
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe extern "system" fn obs_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
 pub fn cursor_point() -> POINT {
     let mut pt = POINT::default();
     unsafe {
@@ -331,12 +454,7 @@ fn monitor_rect(mon: HMONITOR) -> RECT {
 }
 
 fn offscreen_radius(cursor: [f32; 2], width: f32, height: f32, zoom: f32) -> f32 {
-    let corners = [
-        [0.0, 0.0],
-        [width, 0.0],
-        [0.0, height],
-        [width, height],
-    ];
+    let corners = [[0.0, 0.0], [width, 0.0], [0.0, height], [width, height]];
     corners
         .iter()
         .map(|p| {

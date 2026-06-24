@@ -10,6 +10,8 @@ pub struct Config {
     pub hotkey: HotkeyConfig,
     pub zoom: ZoomConfig,
     pub flashlight: FlashlightConfig,
+    #[serde(default)]
+    pub obs_output: ObsOutputConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,6 +28,17 @@ impl Default for FlashlightConfig {
             radius: 200.0,
             shadow: 0.8,
         }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ObsOutputConfig {
+    pub enabled: bool,
+}
+
+impl Default for ObsOutputConfig {
+    fn default() -> Self {
+        Self { enabled: false }
     }
 }
 
@@ -106,6 +119,7 @@ impl Default for Config {
             },
             zoom: ZoomConfig::default(),
             flashlight: FlashlightConfig::default(),
+            obs_output: ObsOutputConfig::default(),
         }
     }
 }
