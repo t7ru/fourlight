@@ -52,8 +52,7 @@ pub struct Tray {
 
 impl Tray {
     pub fn new() -> Result<Self, String> {
-        let icon = Icon::from_resource(1, Some((16, 16)))
-            .map_err(|e| format!("tray icon: {e}"))?;
+        let icon = Icon::from_resource(1, Some((16, 16))).map_err(|e| format!("tray icon: {e}"))?;
         let settings_id = MenuItem::with_id("settings", "Settings", true, None);
         let quit_id = MenuItem::with_id("quit", "Quit", true, None);
         let menu = Menu::new();
