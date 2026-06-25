@@ -4,10 +4,9 @@ use std::time::Instant;
 use tray_icon::menu::MenuEvent;
 
 use crate::config::Config;
-use crate::hotkey::HotkeyManager;
+use crate::ohes::{HotkeyManager, Tray};
 use crate::overlay::{LiveOverlay, ObsOutputWindow};
 use crate::settings;
-use crate::tray::Tray;
 
 pub struct App {
     pub config: Config,

@@ -1,15 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
-mod capture;
 mod config;
 mod d3d;
-mod events;
 mod flashlight;
-mod hotkey;
+mod ohes;
 mod overlay;
 mod settings;
-mod tray;
 mod wgc;
 
 use std::thread;
@@ -17,8 +14,11 @@ use std::time::{Duration, Instant};
 
 use app::App;
 use config::Config;
-use events::AppEvent;
+use ohes::{AppEvent, install_hotkey_handler, install_tray_handlers};
 use overlay::FRAME;
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage, WM_QUIT,
 };
@@ -37,7 +37,9 @@ fn pump_messages() {
 }
 
 fn main() {
-    capture::set_dpi_aware();
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
 
     let (config, config_path) = match Config::load_or_create() {
         Ok(v) => v,
@@ -48,8 +50,8 @@ fn main() {
     };
 
     let (tx, rx) = std::sync::mpsc::channel();
-    tray::install_tray_handlers(tx.clone());
-    hotkey::install_hotkey_handler(tx);
+    install_tray_handlers(tx.clone());
+    install_hotkey_handler(tx);
 
     let mut app = App::new(config, config_path);
     if let Err(err) = app.init() {
