@@ -13,7 +13,7 @@ mod tray;
 mod wgc;
 
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use app::App;
 use config::Config;
@@ -67,10 +67,13 @@ fn main() {
         }
 
         if app.overlay_active() {
+            let frame_start = Instant::now();
             let dt = app.frame_dt();
             app.tick(dt);
             pump_messages();
-            thread::sleep(FRAME);
+            if let Some(remaining) = FRAME.checked_sub(frame_start.elapsed()) {
+                thread::sleep(remaining);
+            }
         } else {
             pump_messages();
             thread::sleep(idle);
