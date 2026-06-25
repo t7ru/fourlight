@@ -21,11 +21,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CREATESTRUCTW,
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     GWLP_USERDATA, GetMessageW, GetWindowLongPtrW, HICON, HMENU, IDC_ARROW, IsWindow, LoadCursorW,
-    MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostMessageW, RegisterClassW, SW_SHOW, SendMessageW,
-    SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLORSTATIC, WM_DESTROY, WM_HSCROLL,
-    WM_KEYDOWN, WM_SETFONT, WM_SYSKEYDOWN, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED,
-    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    IMAGE_ICON, LR_DEFAULTSIZE, LoadImageW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostMessageW,
+    RegisterClassW, SW_SHOW, SendMessageW, SetWindowLongPtrW, SetWindowTextW, ShowWindow,
+    TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CREATE,
+    WM_CTLCOLORBTN, WM_CTLCOLORSTATIC, WM_DESTROY, WM_HSCROLL, WM_KEYDOWN, WM_SETFONT,
+    WM_SYSKEYDOWN, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
+    WS_VISIBLE,
 };
 use windows::core::{PCWSTR, w};
 
@@ -150,7 +151,16 @@ fn setup_window_class() {
             style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(wnd_proc),
             hInstance: instance.into(),
-            hIcon: HICON::default(),
+            hIcon: LoadImageW(
+                Some(instance.into()),
+                PCWSTR(1usize as *const u16),
+                IMAGE_ICON,
+                0,
+                0,
+                LR_DEFAULTSIZE,
+            )
+            .map(|h| HICON(h.0))
+            .unwrap_or_default(),
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             hbrBackground: GetSysColorBrush(COLOR_WINDOW),
             lpszClassName: w!("FourlightSettings"),

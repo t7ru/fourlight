@@ -52,7 +52,8 @@ pub struct Tray {
 
 impl Tray {
     pub fn new() -> Result<Self, String> {
-        let icon = make_icon();
+        let icon = Icon::from_resource(1, Some((16, 16)))
+            .map_err(|e| format!("tray icon: {e}"))?;
         let settings_id = MenuItem::with_id("settings", "Settings", true, None);
         let quit_id = MenuItem::with_id("quit", "Quit", true, None);
         let menu = Menu::new();
@@ -87,22 +88,4 @@ pub fn install_tray_handlers(tx: EventSender) {
         }
         let _ = tx.send(AppEvent::Menu(event));
     }));
-}
-
-fn make_icon() -> Icon {
-    let size = 16u32;
-    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            let cx = x as f32 - size as f32 / 2.0;
-            let cy = y as f32 - size as f32 / 2.0;
-            let r = (cx * cx + cy * cy).sqrt();
-            if r < size as f32 * 0.45 {
-                rgba.extend_from_slice(&[240, 200, 80, 255]);
-            } else {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            }
-        }
-    }
-    Icon::from_rgba(rgba, size, size).expect("tray icon")
 }
