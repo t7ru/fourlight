@@ -296,15 +296,21 @@ impl LiveOverlay {
             flashlight: flashlight as u8 as f32,
             ..Default::default()
         };
-        if self.is_active() {
-            self.d3d.render(srv, params)?;
+        let active = self.is_active();
+        if active {
+            self.d3d.prepare_render(srv);
+            self.d3d.draw(params, 1)?;
         }
         if self.obs_enabled {
             if let Some(obs) = &mut self.obs_output {
                 obs.d3d.resize(width, height)?;
-                obs.d3d.render_with_sync(srv, params, 0)?;
+                if !active {
+                    obs.d3d.prepare_render(srv);
+                }
+                obs.d3d.draw(params, 0)?;
             }
         }
+        self.d3d.finish_render();
 
         if self.closing && self.zoom <= MIN_ZOOM + 0.002 && !self.flashlight.visible(offscreen) {
             unsafe {

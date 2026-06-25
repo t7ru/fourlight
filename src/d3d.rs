@@ -1,24 +1,24 @@
-use windows::core::s;
 use windows::Win32::Foundation::{HMODULE, HWND};
+use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0, ID3DBlob,
 };
-use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_BIND_CONSTANT_BUFFER, D3D11_BUFFER_DESC,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SAMPLER_DESC, D3D11_SDK_VERSION,
-    D3D11_TEXTURE_ADDRESS_CLAMP, D3D11_USAGE_DEFAULT, D3D11_VIEWPORT, D3D11CreateDevice,
-    ID3D11Buffer, ID3D11Device, ID3D11DeviceContext, ID3D11PixelShader, ID3D11RenderTargetView,
-    ID3D11SamplerState, ID3D11ShaderResourceView, ID3D11Texture2D, ID3D11VertexShader,
+    D3D11_BIND_CONSTANT_BUFFER, D3D11_BUFFER_DESC, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+    D3D11_SAMPLER_DESC, D3D11_SDK_VERSION, D3D11_TEXTURE_ADDRESS_CLAMP, D3D11_USAGE_DEFAULT,
+    D3D11_VIEWPORT, D3D11CreateDevice, ID3D11Buffer, ID3D11Device, ID3D11DeviceContext,
+    ID3D11PixelShader, ID3D11RenderTargetView, ID3D11SamplerState, ID3D11ShaderResourceView,
+    ID3D11Texture2D, ID3D11VertexShader,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory2, IDXGIFactory2, IDXGISwapChain1, DXGI_CREATE_FACTORY_FLAGS, DXGI_PRESENT,
-    DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG,
-    DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT,
+    CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, DXGI_PRESENT, DXGI_SCALING_STRETCH,
+    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG, DXGI_SWAP_EFFECT_FLIP_DISCARD,
+    DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIFactory2, IDXGISwapChain1,
 };
+use windows::core::s;
 
 const SHADER: &[u8] = br#"
 Texture2D tex0 : register(t0);
@@ -229,20 +229,7 @@ impl D3d {
         Ok(())
     }
 
-    pub fn render(
-        &self,
-        srv: &ID3D11ShaderResourceView,
-        params: ShaderParams,
-    ) -> Result<(), String> {
-        self.render_with_sync(srv, params, 1)
-    }
-
-    pub fn render_with_sync(
-        &self,
-        srv: &ID3D11ShaderResourceView,
-        params: ShaderParams,
-        sync_interval: u32,
-    ) -> Result<(), String> {
+    pub fn prepare_render(&self, srv: &ID3D11ShaderResourceView) {
         unsafe {
             let viewport = D3D11_VIEWPORT {
                 TopLeftX: 0.0,
@@ -253,7 +240,22 @@ impl D3d {
                 MaxDepth: 1.0,
             };
             self.context.RSSetViewports(Some(&[viewport]));
-            self.context.OMSetRenderTargets(Some(&[Some(self.rtv.clone())]), None);
+            self.context.IASetPrimitiveTopology(
+                windows::Win32::Graphics::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+            );
+            self.context.VSSetShader(&self.vs, None);
+            self.context.PSSetShader(&self.ps, None);
+            self.context
+                .PSSetSamplers(0, Some(&[Some(self.sampler.clone())]));
+            self.context
+                .PSSetShaderResources(0, Some(&[Some(srv.clone())]));
+        }
+    }
+
+    pub fn draw(&self, params: ShaderParams, sync_interval: u32) -> Result<(), String> {
+        unsafe {
+            self.context
+                .OMSetRenderTargets(Some(&[Some(self.rtv.clone())]), None);
             self.context.UpdateSubresource(
                 &self.params,
                 0,
@@ -262,25 +264,28 @@ impl D3d {
                 0,
                 0,
             );
-            self.context.IASetPrimitiveTopology(
-                windows::Win32::Graphics::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
-            );
-            self.context.VSSetShader(&self.vs, None);
-            self.context.PSSetShader(&self.ps, None);
-            self.context.PSSetConstantBuffers(0, Some(&[Some(self.params.clone())]));
-            self.context.PSSetSamplers(0, Some(&[Some(self.sampler.clone())]));
-            self.context.PSSetShaderResources(0, Some(&[Some(srv.clone())]));
+            self.context
+                .PSSetConstantBuffers(0, Some(&[Some(self.params.clone())]));
             self.context.Draw(3, 0);
             self.swapchain
                 .Present(sync_interval, DXGI_PRESENT(0))
                 .ok()
                 .map_err(|e| format!("Present: {e}"))?;
-            self.context.PSSetShaderResources(0, Some(&[None]));
         }
         Ok(())
     }
 
-    pub fn create_srv(&self, texture: &ID3D11Texture2D) -> Result<ID3D11ShaderResourceView, String> {
+    pub fn finish_render(&self) {
+        unsafe {
+            self.context.OMSetRenderTargets(None, None);
+            self.context.PSSetShaderResources(0, Some(&[None]));
+        }
+    }
+
+    pub fn create_srv(
+        &self,
+        texture: &ID3D11Texture2D,
+    ) -> Result<ID3D11ShaderResourceView, String> {
         unsafe {
             let mut srv = None;
             self.device
