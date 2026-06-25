@@ -66,7 +66,7 @@ fn main() {
             }
         }
 
-        if app.overlay_active() {
+        if app.should_tick() {
             let frame_start = Instant::now();
             let dt = app.frame_dt();
             app.tick(dt);

@@ -4,7 +4,7 @@ use std::time::Instant;
 use tray_icon::menu::MenuEvent;
 
 use crate::config::Config;
-use crate::hotkey::{self, HotkeyManager};
+use crate::hotkey::HotkeyManager;
 use crate::overlay::{LiveOverlay, ObsOutputWindow};
 use crate::settings;
 use crate::tray::Tray;
@@ -43,7 +43,7 @@ impl App {
         Ok(())
     }
 
-    pub fn overlay_active(&self) -> bool {
+    pub fn should_tick(&self) -> bool {
         self.overlay.as_ref().is_some_and(|o| o.should_tick())
     }
 
@@ -79,7 +79,7 @@ impl App {
         if overlay.is_closing() {
             overlay.cancel_hide(self.config.zoom.default_zoom, &self.config.flashlight);
             if let Some(tray) = &self.tray {
-                tray.set_tooltip("fourlight — zoom active");
+                tray.set_tooltip("fourlight: zoom active");
             }
         } else if overlay.is_active() {
             overlay.begin_hide();
@@ -90,7 +90,7 @@ impl App {
             overlay.show(self.config.zoom.default_zoom, &self.config.flashlight);
             self.last_frame = Instant::now();
             if let Some(tray) = &self.tray {
-                tray.set_tooltip("fourlight — zoom active");
+                tray.set_tooltip("fourlight: zoom active");
             }
         }
     }
@@ -107,7 +107,7 @@ impl App {
         if self.config.obs_output.enabled {
             self.sync_obs_window();
         }
-        let obs_hwnd = self.obs_hwnd();
+        let obs_hwnd = self.obs_window.as_ref().map(ObsOutputWindow::hwnd);
         if let Some(overlay) = &mut self.overlay {
             overlay.set_obs_output_window(obs_hwnd);
         }
@@ -137,7 +137,8 @@ impl App {
     }
 
     pub fn handle_hotkey(&mut self, event: &global_hotkey::GlobalHotKeyEvent) {
-        if !hotkey::is_hotkey_pressed(event) {
+        use global_hotkey::HotKeyState;
+        if event.state != HotKeyState::Pressed {
             return;
         }
         self.toggle_overlay();
@@ -162,15 +163,11 @@ impl App {
         }
     }
 
-    fn obs_hwnd(&self) -> Option<windows::Win32::Foundation::HWND> {
-        self.obs_window.as_ref().map(ObsOutputWindow::hwnd)
-    }
-
     fn ensure_overlay(&mut self) -> Result<(), ()> {
         if self.overlay.is_some() {
             return Ok(());
         }
-        match LiveOverlay::new(self.obs_hwnd()) {
+        match LiveOverlay::new(self.obs_window.as_ref().map(ObsOutputWindow::hwnd)) {
             Ok(mut overlay) => {
                 overlay.sync_user_data();
                 self.overlay = Some(overlay);

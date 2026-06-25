@@ -66,4 +66,3 @@ impl Flashlight {
         self.active || self.radius < offscreen_radius - 0.5
     }
 }
-

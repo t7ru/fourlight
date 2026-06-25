@@ -61,7 +61,13 @@ impl HotkeyConfig {
                 other => other.into(),
             })
             .collect();
-        parts.push(display_key_name(&self.key));
+        parts.push(if let Some(ch) = self.key.strip_prefix("Key") {
+            ch.to_string()
+        } else if let Some(d) = self.key.strip_prefix("Digit") {
+            d.to_string()
+        } else {
+            self.key.clone()
+        });
         parts.join(" + ")
     }
 }
@@ -88,16 +94,6 @@ const DIGIT_CODES: [&str; 10] = [
 const FKEY_CODES: [&str; 12] = [
     "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
 ];
-
-fn display_key_name(key: &str) -> String {
-    if let Some(ch) = key.strip_prefix("Key") {
-        return ch.to_string();
-    }
-    if let Some(d) = key.strip_prefix("Digit") {
-        return d.to_string();
-    }
-    key.to_string()
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ZoomConfig {
@@ -126,7 +122,8 @@ impl Default for Config {
 
 impl Config {
     pub fn config_path() -> PathBuf {
-        let dirs = ProjectDirs::from("", "", "fourlight").expect("could not resolve app data directory");
+        let dirs =
+            ProjectDirs::from("", "", "fourlight").expect("could not resolve app data directory");
         dirs.config_dir()
             .parent()
             .expect("fourlight app root")

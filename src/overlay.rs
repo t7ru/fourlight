@@ -5,21 +5,21 @@ use crate::d3d::{D3d, ShaderParams};
 use crate::flashlight::Flashlight;
 use crate::wgc::WgcCapture;
 
-use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromPoint, HBRUSH, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, HBRUSH, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_F};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, GetSystemMetrics,
-    GetWindowLongPtrW, LoadCursorW, RegisterClassW, SetCursor, SetForegroundWindow,
-    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowCursor, ShowWindow, CS_HREDRAW,
-    CS_VREDRAW, GWLP_USERDATA, HTCLIENT, HWND_TOPMOST, IDC_ARROW, SM_CXSCREEN, SM_CYSCREEN,
-    SW_HIDE, SW_SHOW, SW_SHOWNA, WDA_EXCLUDEFROMCAPTURE, WM_KEYDOWN, WM_MOUSEWHEEL, WM_SETCURSOR,
-    WNDCLASSW, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
+    GetCursorPos, GetSystemMetrics, GetWindowLongPtrW, HTCLIENT, HWND_TOPMOST, IDC_ARROW,
+    LoadCursorW, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW, SW_SHOWNA, SetCursor,
+    SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowCursor,
+    ShowWindow, WDA_EXCLUDEFROMCAPTURE, WM_KEYDOWN, WM_MOUSEWHEEL, WM_SETCURSOR, WNDCLASSW,
+    WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
+use windows::core::w;
 
 pub const MIN_ZOOM: f32 = 1.0;
 pub const MAX_ZOOM: f32 = 16.0;

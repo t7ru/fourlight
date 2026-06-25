@@ -1,9 +1,8 @@
-use windows::core::{factory, Interface};
 use windows::Graphics::Capture::{
     Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession,
 };
-use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
+use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Graphics::SizeInt32;
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
@@ -12,7 +11,8 @@ use windows::Win32::System::WinRT::Direct3D11::{
     CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
-use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
+use windows::core::{Interface, factory};
 
 pub struct WgcCapture {
     _device: IDirect3DDevice,
@@ -26,8 +26,12 @@ impl WgcCapture {
         unsafe {
             let _ = RoInitialize(RO_INIT_MULTITHREADED);
             let item = capture_item_for_monitor(monitor)?;
-            let size = item.Size().map_err(|e| format!("GraphicsCaptureItem.Size: {e}"))?;
-            let dxgi: IDXGIDevice = device.cast().map_err(|e| format!("ID3D11Device->IDXGIDevice: {e}"))?;
+            let size = item
+                .Size()
+                .map_err(|e| format!("GraphicsCaptureItem.Size: {e}"))?;
+            let dxgi: IDXGIDevice = device
+                .cast()
+                .map_err(|e| format!("ID3D11Device->IDXGIDevice: {e}"))?;
             let inspectable = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)
                 .map_err(|e| format!("CreateDirect3D11DeviceFromDXGIDevice: {e}"))?;
             let d3d_device: IDirect3DDevice = inspectable
@@ -85,13 +89,13 @@ impl WgcCapture {
                     let surface = frame
                         .Surface()
                         .map_err(|e| format!("Direct3D11CaptureFrame.Surface: {e}"))?;
-                    let access: IDirect3DDxgiInterfaceAccess = surface
-                        .cast()
-                        .map_err(|e| format!("IDirect3DSurface->IDirect3DDxgiInterfaceAccess: {e}"))?;
+                    let access: IDirect3DDxgiInterfaceAccess = surface.cast().map_err(|e| {
+                        format!("IDirect3DSurface->IDirect3DDxgiInterfaceAccess: {e}")
+                    })?;
                     latest = Some(unsafe {
-                        access
-                            .GetInterface::<ID3D11Texture2D>()
-                            .map_err(|e| format!("IDirect3DDxgiInterfaceAccess.GetInterface: {e}"))?
+                        access.GetInterface::<ID3D11Texture2D>().map_err(|e| {
+                            format!("IDirect3DDxgiInterfaceAccess.GetInterface: {e}")
+                        })?
                     });
                     let _ = frame.Close();
                 }

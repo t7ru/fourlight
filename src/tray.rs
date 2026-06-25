@@ -17,7 +17,8 @@ impl Tray {
         let quit_id = MenuItem::with_id("quit", "Quit", true, None);
         let menu = Menu::new();
         menu.append(&settings_id).map_err(|e| e.to_string())?;
-        menu.append(&PredefinedMenuItem::separator()).map_err(|e| e.to_string())?;
+        menu.append(&PredefinedMenuItem::separator())
+            .map_err(|e| e.to_string())?;
         menu.append(&quit_id).map_err(|e| e.to_string())?;
 
         let icon = TrayIconBuilder::new()
