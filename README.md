@@ -4,6 +4,8 @@ A neat little utility zooms with a spotlight, it is inspired by [ZoomIt](https:/
 
 Currently, it only supports Windows.
 
+https://github.com/user-attachments/assets/5ecbac8b-a154-4e6e-bd18-0af8c8473f65
+
 ## Build
 
 ```sh
