@@ -485,7 +485,6 @@ unsafe fn row_label(parent: HWND, instance: HINSTANCE, text: PCWSTR, y: i32, fon
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn value(parent: HWND, instance: HINSTANCE, y: i32, font: HFONT) -> HWND {
     let hwnd = control(
         parent,
