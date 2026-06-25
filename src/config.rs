@@ -111,7 +111,7 @@ impl Default for Config {
         Self {
             hotkey: HotkeyConfig {
                 modifiers: vec!["CONTROL".into(), "ALT".into()],
-                key: "KeyZ".into(),
+                key: "KeyQ".into(),
             },
             zoom: ZoomConfig::default(),
             flashlight: FlashlightConfig::default(),
