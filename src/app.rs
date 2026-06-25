@@ -53,6 +53,12 @@ impl App {
         }
     }
 
+    pub fn retire_idle_overlay(&mut self) {
+        if self.overlay.as_ref().is_some_and(|o| !o.should_tick()) {
+            self.overlay = None;
+        }
+    }
+
     pub fn frame_dt(&mut self) -> f32 {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.05);

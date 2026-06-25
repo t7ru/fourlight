@@ -75,6 +75,7 @@ fn main() {
                 thread::sleep(remaining);
             }
         } else {
+            app.retire_idle_overlay();
             pump_messages();
             thread::sleep(idle);
         }
