@@ -396,27 +396,24 @@ fn capture_hotkey(d: &mut Dialog, vk: u32) -> LRESULT {
 }
 
 fn read_modifiers() -> Vec<String> {
-    unsafe {
-        let mut mods = Vec::new();
-        if key_down(VK_CONTROL) {
-            mods.push("CONTROL".into());
-        }
-        if key_down(VK_MENU) {
-            mods.push("ALT".into());
-        }
-        if key_down(VK_SHIFT) {
-            mods.push("SHIFT".into());
-        }
-        if key_down(VK_LWIN) || key_down(VK_RWIN) {
-            mods.push("SUPER".into());
-        }
-        mods
+    let mut mods = Vec::new();
+    if key_down(VK_CONTROL) {
+        mods.push("CONTROL".into());
     }
+    if key_down(VK_MENU) {
+        mods.push("ALT".into());
+    }
+    if key_down(VK_SHIFT) {
+        mods.push("SHIFT".into());
+    }
+    if key_down(VK_LWIN) || key_down(VK_RWIN) {
+        mods.push("SUPER".into());
+    }
+    mods
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
-    GetAsyncKeyState(vk.0 as i32) as u16 & 0x8000 != 0
+fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
+    unsafe { GetAsyncKeyState(vk.0 as i32) as u16 & 0x8000 != 0 }
 }
 
 fn is_modifier(vk: u32) -> bool {
