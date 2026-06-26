@@ -352,7 +352,7 @@ fn update_values(d: &Dialog) {
         d.zoom_value,
         &format!("{:.1}x", tb_pos(d.zoom) as f32 / 10.0),
     );
-    set_text(d.radius_value, &format!("{} px", tb_pos(d.radius)));
+    set_text(d.radius_value, &format!("{}px", tb_pos(d.radius)));
     set_text(d.shadow_value, &format!("{}%", tb_pos(d.shadow)));
 }
 
