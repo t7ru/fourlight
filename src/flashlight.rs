@@ -30,10 +30,6 @@ impl Flashlight {
         }
     }
 
-    pub fn deactivate(&mut self) {
-        self.active = false;
-    }
-
     pub fn toggle(&mut self, offscreen_radius: f32) {
         self.active = !self.active;
         if self.active {

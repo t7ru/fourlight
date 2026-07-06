@@ -214,7 +214,7 @@ impl LiveOverlay {
         if self.visible {
             self.closing = true;
             self.target_zoom = MIN_ZOOM;
-            self.flashlight.deactivate();
+            self.flashlight.active = false;
         }
     }
 
