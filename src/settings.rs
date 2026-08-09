@@ -403,7 +403,7 @@ fn capture_hotkey(d: &mut Dialog, vk: u32) -> LRESULT {
     };
 
     d.draft.hotkey.modifiers = read_modifiers();
-    d.draft.hotkey.key = key.to_string();
+    d.draft.hotkey.key = key;
     d.recording = false;
     set_text(d.hotkey, &d.draft.hotkey.display());
     LRESULT(0)

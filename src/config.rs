@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
+use seq_macro::seq;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -71,29 +72,6 @@ impl HotkeyConfig {
         parts.join(" + ")
     }
 }
-
-pub fn code_from_vk(vk: u32) -> Option<&'static str> {
-    match vk {
-        0x41..=0x5a => Some(LETTER_CODES[(vk - 0x41) as usize]),
-        0x30..=0x39 => Some(DIGIT_CODES[(vk - 0x30) as usize]),
-        0x70..=0x7b => Some(FKEY_CODES[(vk - 0x70) as usize]),
-        0x20 => Some("Space"),
-        _ => None,
-    }
-}
-
-const LETTER_CODES: [&str; 26] = [
-    "KeyA", "KeyB", "KeyC", "KeyD", "KeyE", "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL",
-    "KeyM", "KeyN", "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW", "KeyX",
-    "KeyY", "KeyZ",
-];
-const DIGIT_CODES: [&str; 10] = [
-    "Digit0", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8",
-    "Digit9",
-];
-const FKEY_CODES: [&str; 12] = [
-    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ZoomConfig {
@@ -188,59 +166,34 @@ fn parse_modifiers(names: &[String]) -> Result<Modifiers, String> {
     Ok(mods)
 }
 
-fn parse_code(name: &str) -> Result<Code, String> {
-    use Code::*;
-    let code = match name {
-        "KeyA" => KeyA,
-        "KeyB" => KeyB,
-        "KeyC" => KeyC,
-        "KeyD" => KeyD,
-        "KeyE" => KeyE,
-        "KeyF" => KeyF,
-        "KeyG" => KeyG,
-        "KeyH" => KeyH,
-        "KeyI" => KeyI,
-        "KeyJ" => KeyJ,
-        "KeyK" => KeyK,
-        "KeyL" => KeyL,
-        "KeyM" => KeyM,
-        "KeyN" => KeyN,
-        "KeyO" => KeyO,
-        "KeyP" => KeyP,
-        "KeyQ" => KeyQ,
-        "KeyR" => KeyR,
-        "KeyS" => KeyS,
-        "KeyT" => KeyT,
-        "KeyU" => KeyU,
-        "KeyV" => KeyV,
-        "KeyW" => KeyW,
-        "KeyX" => KeyX,
-        "KeyY" => KeyY,
-        "KeyZ" => KeyZ,
-        "Digit0" => Digit0,
-        "Digit1" => Digit1,
-        "Digit2" => Digit2,
-        "Digit3" => Digit3,
-        "Digit4" => Digit4,
-        "Digit5" => Digit5,
-        "Digit6" => Digit6,
-        "Digit7" => Digit7,
-        "Digit8" => Digit8,
-        "Digit9" => Digit9,
-        "F1" => F1,
-        "F2" => F2,
-        "F3" => F3,
-        "F4" => F4,
-        "F5" => F5,
-        "F6" => F6,
-        "F7" => F7,
-        "F8" => F8,
-        "F9" => F9,
-        "F10" => F10,
-        "F11" => F11,
-        "F12" => F12,
-        "Space" => Space,
-        other => return Err(format!("unknown key code `{other}`")),
-    };
-    Ok(code)
+pub fn code_from_vk(vk: u32) -> Option<String> {
+    match vk {
+        0x41..=0x5A => Some(format!("Key{}", vk as u8 as char)),
+        0x30..=0x39 => Some(format!("Digit{}", vk as u8 as char)),
+        0x70..=0x7B => Some(format!("F{}", vk - 0x6F)),
+        0x20 => Some("Space".into()),
+        _ => None,
+    }
+}
+
+pub fn parse_code(name: &str) -> Result<Code, String> {
+    seq!(C in 'A'..='Z' {
+        if name == stringify!(Key~C) {
+            return Ok(Code::Key~C);
+        }
+    });
+    seq!(C in '0'..='9' {
+        if name == stringify!(Digit~C) {
+            return Ok(Code::Digit~C);
+        }
+    });
+    seq!(N in 1..=12 {
+        if name == stringify!(F~N) {
+            return Ok(Code::F~N);
+        }
+    });
+    if name == "Space" {
+        return Ok(Code::Space);
+    }
+    Err(format!("unknown key code `{name}`"))
 }
