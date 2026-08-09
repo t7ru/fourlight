@@ -50,6 +50,7 @@ const SS_RIGHT: WINDOW_STYLE = WINDOW_STYLE(0x0002);
 const ID_HOTKEY: i32 = 101;
 const ID_FLASHLIGHT: i32 = 103;
 const ID_ZOOM: i32 = 104;
+const ID_FREE_ROAM: i32 = 108;
 const ID_RADIUS: i32 = 105;
 const ID_SHADOW: i32 = 106;
 const ID_OBS_OUTPUT: i32 = 107;
@@ -70,6 +71,7 @@ struct Dialog {
     flashlight: HWND,
     zoom: HWND,
     zoom_value: HWND,
+    free_roam: HWND,
     radius: HWND,
     radius_value: HWND,
     shadow: HWND,
@@ -93,6 +95,7 @@ pub fn run(initial: &Config) -> Option<Config> {
             flashlight: HWND::default(),
             zoom: HWND::default(),
             zoom_value: HWND::default(),
+            free_roam: HWND::default(),
             radius: HWND::default(),
             radius_value: HWND::default(),
             shadow: HWND::default(),
@@ -265,6 +268,15 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
     d.hotkey = hotkey_button(hwnd, instance, ID_HOTKEY, M + LABEL_W, 112, d.font);
 
     section(hwnd, instance, w!("Zoom"), 164, d);
+    d.free_roam = checkbox(
+        hwnd,
+        instance,
+        ID_FREE_ROAM,
+        w!("Cursor can leave screen"),
+        M + LABEL_W,
+        160,
+        d.font,
+    );
     d.zoom_value = value(hwnd, instance, 194, d.font);
     d.zoom = slider(hwnd, instance, ID_ZOOM, 192);
 
@@ -327,6 +339,7 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
     tb_set(d.shadow, (d.draft.flashlight.shadow * 100.0).round() as i32);
 
     set_text(d.hotkey, &d.draft.hotkey.display());
+    set_checked(d.free_roam, d.draft.zoom.free_roam);
     set_checked(d.flashlight, d.draft.flashlight.enabled);
     set_checked(d.obs_output, d.draft.obs_output.enabled);
     update_values(d);
@@ -339,6 +352,7 @@ fn read_dialog(d: &mut Dialog) -> Result<(), String> {
     }
 
     d.draft.zoom.default_zoom = tb_pos(d.zoom) as f32 / 10.0;
+    d.draft.zoom.free_roam = checked(d.free_roam);
     d.draft.flashlight.enabled = checked(d.flashlight);
     d.draft.flashlight.radius = tb_pos(d.radius) as f32;
     d.draft.flashlight.shadow = tb_pos(d.shadow) as f32 / 100.0;

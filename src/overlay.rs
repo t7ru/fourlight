@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use std::sync::Once;
 
 use crate::config::FlashlightConfig;
@@ -11,13 +12,17 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_F};
+use windows::Win32::UI::Input::{
+    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
+    RIDEV_INPUTSINK, RIM_TYPEMOUSE, RegisterRawInputDevices,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
     GetCursorPos, GetSystemMetrics, GetWindowLongPtrW, HTCLIENT, HWND_TOPMOST, IDC_ARROW,
     LoadCursorW, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW, SW_SHOWNA, SetCursor,
     SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowCursor,
-    ShowWindow, WDA_EXCLUDEFROMCAPTURE, WM_KEYDOWN, WM_MOUSEWHEEL, WM_SETCURSOR, WNDCLASSW,
-    WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    ShowWindow, WDA_EXCLUDEFROMCAPTURE, WM_INPUT, WM_KEYDOWN, WM_MOUSEWHEEL, WM_SETCURSOR,
+    WNDCLASSW, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::w;
 
@@ -90,6 +95,9 @@ pub struct LiveOverlay {
     target_zoom: f32,
     visible: bool,
     closing: bool,
+    raw_delta: [f32; 2],
+    overshoot: [f32; 2],
+    free_roam: bool,
     flashlight: Flashlight,
     obs_output: Option<ObsOutput>,
     obs_enabled: bool,
@@ -122,6 +130,7 @@ impl LiveOverlay {
             .map_err(|e| format!("overlay window: {e}"))?;
             SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
                 .map_err(|e| format!("SetWindowDisplayAffinity: {e}"))?;
+            register_raw_mouse(hwnd)?;
             let d3d = D3d::new(hwnd, width, height)?;
             let capture = WgcCapture::new(&d3d.device, monitor)?;
             let obs_output = if let Some(hwnd) = obs_hwnd {
@@ -141,6 +150,9 @@ impl LiveOverlay {
                 target_zoom: MIN_ZOOM,
                 visible: false,
                 closing: false,
+                raw_delta: [0.0, 0.0],
+                overshoot: [0.0, 0.0],
+                free_roam: false,
                 flashlight: Flashlight::from_config(&FlashlightConfig::default()),
                 obs_output,
                 obs_enabled,
@@ -176,22 +188,12 @@ impl LiveOverlay {
         }
     }
 
-    pub fn show(&mut self, target_zoom: f32, fl_cfg: &FlashlightConfig) {
+    pub fn show(&mut self, target_zoom: f32, fl_cfg: &FlashlightConfig, free_roam: bool) {
         self.sync_user_data();
         self.zoom = MIN_ZOOM;
         self.target_zoom = target_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
-        let cursor = cursor_point();
-        let cursor = [
-            (cursor.x - self.rect.left) as f32,
-            (cursor.y - self.rect.top) as f32,
-        ];
-        let offscreen = offscreen_radius(
-            cursor,
-            (self.rect.right - self.rect.left) as f32,
-            (self.rect.bottom - self.rect.top) as f32,
-            self.zoom,
-        );
-        self.flashlight.restart(fl_cfg, offscreen);
+        self.free_roam = free_roam;
+        self.recenter(fl_cfg);
         self.closing = false;
         unsafe {
             let _ = SetWindowPos(
@@ -218,21 +220,11 @@ impl LiveOverlay {
         }
     }
 
-    pub fn cancel_hide(&mut self, target_zoom: f32, fl_cfg: &FlashlightConfig) {
+    pub fn cancel_hide(&mut self, target_zoom: f32, fl_cfg: &FlashlightConfig, free_roam: bool) {
         self.closing = false;
         self.target_zoom = target_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
-        let cursor = cursor_point();
-        let cursor = [
-            (cursor.x - self.rect.left) as f32,
-            (cursor.y - self.rect.top) as f32,
-        ];
-        let offscreen = offscreen_radius(
-            cursor,
-            (self.rect.right - self.rect.left) as f32,
-            (self.rect.bottom - self.rect.top) as f32,
-            self.zoom,
-        );
-        self.flashlight.restart(fl_cfg, offscreen);
+        self.free_roam = free_roam;
+        self.recenter(fl_cfg);
     }
 
     pub fn tick(&mut self, dt: f32) {
@@ -275,14 +267,10 @@ impl LiveOverlay {
         let width = (self.rect.right - self.rect.left) as u32;
         let height = (self.rect.bottom - self.rect.top) as u32;
         self.d3d.resize(width, height)?;
+        let cursor = self.cursor_local();
         let Some(srv) = &self.last_srv else {
             return Ok(());
         };
-        let cursor = cursor_point();
-        let cursor = [
-            (cursor.x - self.rect.left) as f32,
-            (cursor.y - self.rect.top) as f32,
-        ];
         let offscreen = offscreen_radius(cursor, width as f32, height as f32, self.zoom);
         self.flashlight.update(dt, offscreen);
         let flashlight = self.is_active() && self.flashlight.visible(offscreen);
@@ -338,11 +326,7 @@ impl LiveOverlay {
 
     fn on_key(&mut self, vk: u32) {
         if vk == VK_F.0 as u32 {
-            let cursor = cursor_point();
-            let cursor = [
-                (cursor.x - self.rect.left) as f32,
-                (cursor.y - self.rect.top) as f32,
-            ];
+            let cursor = self.cursor_local();
             let offscreen = offscreen_radius(
                 cursor,
                 (self.rect.right - self.rect.left) as f32,
@@ -351,6 +335,55 @@ impl LiveOverlay {
             );
             self.flashlight.toggle(offscreen);
         }
+    }
+
+    fn cursor_local(&mut self) -> [f32; 2] {
+        let phys = local_cursor_point(self.rect);
+        if !self.free_roam {
+            return phys;
+        }
+        let [dx, dy] = std::mem::take(&mut self.raw_delta);
+        let w = (self.rect.right - self.rect.left) as f32;
+        let h = (self.rect.bottom - self.rect.top) as f32;
+        pan(&mut self.overshoot[0], dx, phys[0], w);
+        pan(&mut self.overshoot[1], dy, phys[1], h);
+        [phys[0] + self.overshoot[0], phys[1] + self.overshoot[1]]
+    }
+
+    fn recenter(&mut self, fl_cfg: &FlashlightConfig) {
+        self.raw_delta = [0.0, 0.0];
+        self.overshoot = [0.0, 0.0];
+        let cursor = local_cursor_point(self.rect);
+        let offscreen = offscreen_radius(
+            cursor,
+            (self.rect.right - self.rect.left) as f32,
+            (self.rect.bottom - self.rect.top) as f32,
+            self.zoom,
+        );
+        self.flashlight.restart(fl_cfg, offscreen);
+    }
+
+    fn on_raw_input(&mut self, lparam: LPARAM) {
+        if !self.free_roam || !self.is_active() {
+            return;
+        }
+        let mut input = RAWINPUT::default();
+        let mut size = size_of::<RAWINPUT>() as u32;
+        let ok = unsafe {
+            GetRawInputData(
+                HRAWINPUT(lparam.0 as _),
+                RID_INPUT,
+                Some((&mut input as *mut RAWINPUT).cast()),
+                &mut size,
+                size_of::<RAWINPUTHEADER>() as u32,
+            )
+        };
+        if ok == u32::MAX || input.header.dwType != RIM_TYPEMOUSE.0 {
+            return;
+        }
+        let mouse = unsafe { input.data.mouse };
+        self.raw_delta[0] += mouse.lLastX as f32;
+        self.raw_delta[1] += mouse.lLastY as f32;
     }
 }
 
@@ -396,6 +429,17 @@ fn register_class() {
     });
 }
 
+fn register_raw_mouse(hwnd: HWND) -> Result<(), String> {
+    let device = RAWINPUTDEVICE {
+        usUsagePage: 0x01,
+        usUsage: 0x02,
+        dwFlags: RIDEV_INPUTSINK,
+        hwndTarget: hwnd,
+    };
+    unsafe { RegisterRawInputDevices(&[device], size_of::<RAWINPUTDEVICE>() as u32) }
+        .map_err(|e| format!("RegisterRawInputDevices: {e}"))
+}
+
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe extern "system" fn overlay_wnd_proc(
     hwnd: HWND,
@@ -417,6 +461,12 @@ unsafe extern "system" fn overlay_wnd_proc(
             if !ptr.is_null() {
                 (*ptr).on_key(wparam.0 as u32);
                 return LRESULT(0);
+            }
+        }
+        WM_INPUT => {
+            let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut LiveOverlay;
+            if !ptr.is_null() {
+                (*ptr).on_raw_input(lparam);
             }
         }
         WM_SETCURSOR => {
@@ -446,6 +496,23 @@ pub fn cursor_point() -> POINT {
         let _ = GetCursorPos(&mut pt);
     }
     pt
+}
+
+fn local_cursor_point(rect: RECT) -> [f32; 2] {
+    let cursor = cursor_point();
+    [(cursor.x - rect.left) as f32, (cursor.y - rect.top) as f32]
+}
+
+fn pan(over: &mut f32, delta: f32, pos: f32, size: f32) {
+    if delta == 0.0 {
+        return;
+    }
+    if (delta > 0.0 && pos >= size - 1.0) || (delta < 0.0 && pos <= 1.0) {
+        *over += delta;
+    } else {
+        let back = over.abs().min(40.0);
+        *over -= over.signum() * back;
+    }
 }
 
 fn monitor_rect(mon: HMONITOR) -> RECT {

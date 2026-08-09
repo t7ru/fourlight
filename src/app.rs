@@ -76,7 +76,11 @@ impl App {
             return;
         };
         if overlay.is_closing() {
-            overlay.cancel_hide(self.config.zoom.default_zoom, &self.config.flashlight);
+            overlay.cancel_hide(
+                self.config.zoom.default_zoom,
+                &self.config.flashlight,
+                self.config.zoom.free_roam,
+            );
             if let Some(tray) = &self.tray {
                 tray.set_tooltip("fourlight: zoom active");
             }
@@ -86,7 +90,11 @@ impl App {
                 tray.set_tooltip("fourlight");
             }
         } else {
-            overlay.show(self.config.zoom.default_zoom, &self.config.flashlight);
+            overlay.show(
+                self.config.zoom.default_zoom,
+                &self.config.flashlight,
+                self.config.zoom.free_roam,
+            );
             self.last_frame = Instant::now();
             if let Some(tray) = &self.tray {
                 tray.set_tooltip("fourlight: zoom active");

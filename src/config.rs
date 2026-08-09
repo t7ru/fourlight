@@ -98,11 +98,16 @@ const FKEY_CODES: [&str; 12] = [
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ZoomConfig {
     pub default_zoom: f32,
+    #[serde(default)]
+    pub free_roam: bool,
 }
 
 impl Default for ZoomConfig {
     fn default() -> Self {
-        Self { default_zoom: 2.0 }
+        Self {
+            default_zoom: 2.0,
+            free_roam: false,
+        }
     }
 }
 
