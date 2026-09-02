@@ -65,6 +65,9 @@ fn main() {
         eprintln!("init failed: {err}");
         std::process::exit(1);
     }
+    if app.config.launch.open_settings {
+        app.open_settings();
+    }
 
     let idle = Duration::from_millis(50);
     while !app.quit {

@@ -54,11 +54,12 @@ const ID_FREE_ROAM: i32 = 108;
 const ID_RADIUS: i32 = 105;
 const ID_SHADOW: i32 = 106;
 const ID_OBS_OUTPUT: i32 = 107;
+const ID_OPEN_ON_LAUNCH: i32 = 109;
 const ID_SAVE: i32 = 1;
 const ID_CANCEL: i32 = 2;
 
 const W: i32 = 600;
-const H: i32 = 500;
+const H: i32 = 548;
 const M: i32 = 24;
 const LABEL_W: i32 = 130;
 const VALUE_W: i32 = 70;
@@ -77,6 +78,7 @@ struct Dialog {
     shadow: HWND,
     shadow_value: HWND,
     obs_output: HWND,
+    open_on_launch: HWND,
     saved: bool,
     font: HFONT,
     title_font: HFONT,
@@ -101,6 +103,7 @@ pub fn run(initial: &Config) -> Option<Config> {
             shadow: HWND::default(),
             shadow_value: HWND::default(),
             obs_output: HWND::default(),
+            open_on_launch: HWND::default(),
             saved: false,
             font: HFONT::default(),
             title_font: HFONT::default(),
@@ -310,13 +313,24 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
         d.font,
     );
 
+    section(hwnd, instance, w!("Launch"), 398, d);
+    d.open_on_launch = checkbox(
+        hwnd,
+        instance,
+        ID_OPEN_ON_LAUNCH,
+        w!("Open settings on launch"),
+        M + LABEL_W,
+        394,
+        d.font,
+    );
+
     button(
         hwnd,
         instance,
         ID_CANCEL,
         w!("Cancel"),
         W - M - 188,
-        406,
+        454,
         false,
         d.font,
     );
@@ -326,7 +340,7 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
         ID_SAVE,
         w!("Save"),
         W - M - 92,
-        406,
+        454,
         true,
         d.font,
     );
@@ -342,6 +356,7 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
     set_checked(d.free_roam, d.draft.zoom.free_roam);
     set_checked(d.flashlight, d.draft.flashlight.enabled);
     set_checked(d.obs_output, d.draft.obs_output.enabled);
+    set_checked(d.open_on_launch, d.draft.launch.open_settings);
     update_values(d);
     set_flashlight_controls(d, d.draft.flashlight.enabled);
 }
@@ -357,6 +372,7 @@ fn read_dialog(d: &mut Dialog) -> Result<(), String> {
     d.draft.flashlight.radius = tb_pos(d.radius) as f32;
     d.draft.flashlight.shadow = tb_pos(d.shadow) as f32 / 100.0;
     d.draft.obs_output.enabled = checked(d.obs_output);
+    d.draft.launch.open_settings = checked(d.open_on_launch);
     d.draft.to_hotkey()?;
     Ok(())
 }
