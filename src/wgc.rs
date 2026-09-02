@@ -19,6 +19,7 @@ pub struct WgcCapture {
     pool: Direct3D11CaptureFramePool,
     session: GraphicsCaptureSession,
     size: SizeInt32,
+    generation: u64,
 }
 
 impl WgcCapture {
@@ -59,12 +60,17 @@ impl WgcCapture {
                 pool,
                 session,
                 size,
+                generation: 0,
             })
         }
     }
 
     pub fn size(&self) -> SizeInt32 {
         self.size
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn latest_texture(&mut self) -> Result<Option<ID3D11Texture2D>, String> {
@@ -77,6 +83,8 @@ impl WgcCapture {
                         .map_err(|e| format!("Direct3D11CaptureFrame.ContentSize: {e}"))?;
                     if size != self.size {
                         self.size = size;
+                        latest = None;
+                        let _ = frame.Close();
                         self.pool
                             .Recreate(
                                 &self._device,
@@ -85,6 +93,8 @@ impl WgcCapture {
                                 size,
                             )
                             .map_err(|e| format!("Direct3D11CaptureFramePool.Recreate: {e}"))?;
+                        self.generation = self.generation.wrapping_add(1);
+                        continue;
                     }
                     let surface = frame
                         .Surface()
