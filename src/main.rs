@@ -9,7 +9,7 @@ mod overlay;
 mod settings;
 mod wgc;
 
-use std::thread;
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use app::App;
@@ -22,6 +22,13 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage, WM_QUIT,
 };
+
+fn dispatch(app: &mut App, event: AppEvent) {
+    match event {
+        AppEvent::Hotkey(hotkey) => app.handle_hotkey(&hotkey),
+        AppEvent::Menu(menu) => app.handle_menu(&menu),
+    }
+}
 
 fn pump_messages() {
     unsafe {
@@ -62,10 +69,7 @@ fn main() {
     let idle = Duration::from_millis(50);
     while !app.quit {
         while let Ok(event) = rx.try_recv() {
-            match event {
-                AppEvent::Hotkey(hotkey) => app.handle_hotkey(&hotkey),
-                AppEvent::Menu(menu) => app.handle_menu(&menu),
-            }
+            dispatch(&mut app, event);
         }
 
         if app.should_tick() {
@@ -74,12 +78,20 @@ fn main() {
             app.tick(dt);
             pump_messages();
             if let Some(remaining) = FRAME.checked_sub(frame_start.elapsed()) {
-                thread::sleep(remaining);
+                match rx.recv_timeout(remaining) {
+                    Ok(e) => dispatch(&mut app, e),
+                    Err(RecvTimeoutError::Disconnected) => break,
+                    _ => {}
+                }
             }
         } else {
             app.retire_idle_overlay();
             pump_messages();
-            thread::sleep(idle);
+            match rx.recv_timeout(idle) {
+                Ok(e) => dispatch(&mut app, e),
+                Err(RecvTimeoutError::Disconnected) => break,
+                _ => {}
+            }
         }
     }
 }
