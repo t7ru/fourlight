@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use windows::Win32::Foundation::{HMODULE, HWND};
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::{
@@ -71,15 +73,20 @@ pub struct ShaderParams {
     pub _pad: [f32; 2],
 }
 
+struct ShaderBytecode {
+    vs: Box<[u8]>,
+    ps: Box<[u8]>,
+}
+
 pub struct D3d {
     pub device: ID3D11Device,
     context: ID3D11DeviceContext,
     swapchain: IDXGISwapChain1,
-    rtv: ID3D11RenderTargetView,
+    rtv: Option<ID3D11RenderTargetView>,
     vs: ID3D11VertexShader,
     ps: ID3D11PixelShader,
-    sampler: ID3D11SamplerState,
-    params: ID3D11Buffer,
+    sampler: Option<ID3D11SamplerState>,
+    params: Option<ID3D11Buffer>,
     width: u32,
     height: u32,
 }
@@ -127,14 +134,14 @@ impl D3d {
                 .CreateSwapChainForHwnd(&device, hwnd, &desc, None, None)
                 .map_err(|e| format!("CreateSwapChainForHwnd: {e}"))?;
 
-            let (vs_blob, ps_blob) = compile_shaders()?;
+            let shaders = shader_bytecode()?;
             let mut vs = None;
             device
-                .CreateVertexShader(blob_bytes(&vs_blob), None, Some(&mut vs))
+                .CreateVertexShader(&shaders.vs, None, Some(&mut vs))
                 .map_err(|e| format!("CreateVertexShader: {e}"))?;
             let mut ps = None;
             device
-                .CreatePixelShader(blob_bytes(&ps_blob), None, Some(&mut ps))
+                .CreatePixelShader(&shaders.ps, None, Some(&mut ps))
                 .map_err(|e| format!("CreatePixelShader: {e}"))?;
 
             let sampler_desc = D3D11_SAMPLER_DESC {
@@ -161,7 +168,7 @@ impl D3d {
                 .CreateBuffer(&cb_desc, None, Some(&mut params))
                 .map_err(|e| format!("CreateBuffer(params): {e}"))?;
 
-            let rtv = create_rtv(&device, &swapchain)?;
+            let rtv = Some(create_rtv(&device, &swapchain)?);
             Ok(Self {
                 device,
                 context,
@@ -169,8 +176,8 @@ impl D3d {
                 rtv,
                 vs: vs.unwrap(),
                 ps: ps.unwrap(),
-                sampler: sampler.unwrap(),
-                params: params.unwrap(),
+                sampler,
+                params,
                 width,
                 height,
             })
@@ -180,7 +187,7 @@ impl D3d {
     pub fn new_shared(hwnd: HWND, width: u32, height: u32, shared: &Self) -> Result<Self, String> {
         unsafe {
             let swapchain = create_swapchain(&shared.device, hwnd, width, height)?;
-            let rtv = create_rtv(&shared.device, &swapchain)?;
+            let rtv = Some(create_rtv(&shared.device, &swapchain)?);
             let cb_desc = D3D11_BUFFER_DESC {
                 ByteWidth: std::mem::size_of::<ShaderParams>() as u32,
                 Usage: D3D11_USAGE_DEFAULT,
@@ -200,7 +207,7 @@ impl D3d {
                 vs: shared.vs.clone(),
                 ps: shared.ps.clone(),
                 sampler: shared.sampler.clone(),
-                params: params.unwrap(),
+                params,
                 width,
                 height,
             })
@@ -222,14 +229,14 @@ impl D3d {
                     DXGI_SWAP_CHAIN_FLAG(0),
                 )
                 .map_err(|e| format!("ResizeBuffers: {e}"))?;
-            self.rtv = create_rtv(&self.device, &self.swapchain)?;
+            self.rtv = Some(create_rtv(&self.device, &self.swapchain)?);
         }
         self.width = width;
         self.height = height;
         Ok(())
     }
 
-    pub fn prepare_render(&self, srv: &ID3D11ShaderResourceView) {
+    pub fn prepare_render(&self, srv: &Option<ID3D11ShaderResourceView>) {
         unsafe {
             let viewport = D3D11_VIEWPORT {
                 TopLeftX: 0.0,
@@ -246,18 +253,18 @@ impl D3d {
             self.context.VSSetShader(&self.vs, None);
             self.context.PSSetShader(&self.ps, None);
             self.context
-                .PSSetSamplers(0, Some(&[Some(self.sampler.clone())]));
+                .PSSetSamplers(0, Some(std::slice::from_ref(&self.sampler)));
             self.context
-                .PSSetShaderResources(0, Some(&[Some(srv.clone())]));
+                .PSSetShaderResources(0, Some(std::slice::from_ref(srv)));
         }
     }
 
     pub fn draw(&self, params: ShaderParams, sync_interval: u32) -> Result<(), String> {
         unsafe {
             self.context
-                .OMSetRenderTargets(Some(&[Some(self.rtv.clone())]), None);
+                .OMSetRenderTargets(Some(std::slice::from_ref(&self.rtv)), None);
             self.context.UpdateSubresource(
-                &self.params,
+                self.params.as_ref().unwrap(),
                 0,
                 None,
                 (&params as *const ShaderParams).cast(),
@@ -265,7 +272,7 @@ impl D3d {
                 0,
             );
             self.context
-                .PSSetConstantBuffers(0, Some(&[Some(self.params.clone())]));
+                .PSSetConstantBuffers(0, Some(std::slice::from_ref(&self.params)));
             self.context.Draw(3, 0);
             self.swapchain
                 .Present(sync_interval, DXGI_PRESENT(0))
@@ -339,6 +346,18 @@ unsafe fn create_rtv(
         .CreateRenderTargetView(&backbuffer, None, Some(&mut rtv))
         .map_err(|e| format!("CreateRenderTargetView: {e}"))?;
     Ok(rtv.unwrap())
+}
+
+fn shader_bytecode() -> Result<&'static ShaderBytecode, String> {
+    static CACHE: OnceLock<ShaderBytecode> = OnceLock::new();
+    if let Some(cached) = CACHE.get() {
+        return Ok(cached);
+    }
+    let (vs, ps) = unsafe { compile_shaders()? };
+    Ok(CACHE.get_or_init(|| ShaderBytecode {
+        vs: unsafe { blob_bytes(&vs) }.to_vec().into_boxed_slice(),
+        ps: unsafe { blob_bytes(&ps) }.to_vec().into_boxed_slice(),
+    }))
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
