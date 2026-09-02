@@ -7,6 +7,7 @@ use crate::flashlight::Flashlight;
 use crate::wgc::WgcCapture;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Direct3D11::{ID3D11ShaderResourceView, ID3D11Texture2D};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, HBRUSH, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
@@ -24,7 +25,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ShowWindow, WDA_EXCLUDEFROMCAPTURE, WM_INPUT, WM_KEYDOWN, WM_MOUSEWHEEL, WM_SETCURSOR,
     WNDCLASSW, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
-use windows::core::w;
+use windows::core::{Interface, w};
 
 pub const MIN_ZOOM: f32 = 1.0;
 pub const MAX_ZOOM: f32 = 16.0;
@@ -90,7 +91,9 @@ pub struct LiveOverlay {
     rect: RECT,
     d3d: D3d,
     capture: WgcCapture,
-    last_srv: Option<windows::Win32::Graphics::Direct3D11::ID3D11ShaderResourceView>,
+    last_srv: Option<ID3D11ShaderResourceView>,
+    srv_cache: [Option<(usize, ID3D11ShaderResourceView)>; 2],
+    srv_generation: u64,
     zoom: f32,
     target_zoom: f32,
     visible: bool,
@@ -146,6 +149,8 @@ impl LiveOverlay {
                 d3d,
                 capture,
                 last_srv: None,
+                srv_cache: [None, None],
+                srv_generation: 0,
                 zoom: MIN_ZOOM,
                 target_zoom: MIN_ZOOM,
                 visible: false,
@@ -259,8 +264,15 @@ impl LiveOverlay {
             self.target_zoom = MIN_ZOOM;
         }
 
-        if let Some(tex) = self.capture.latest_texture()? {
-            self.last_srv = Some(self.d3d.create_srv(&tex)?);
+        let tex = self.capture.latest_texture()?;
+        let current_gen = self.capture.generation();
+        if current_gen != self.srv_generation {
+            self.srv_cache = [None, None];
+            self.srv_generation = current_gen;
+            self.last_srv = None;
+        }
+        if let Some(tex) = tex {
+            self.last_srv = Some(self.srv_for_texture(&tex)?);
         }
 
         let size = self.capture.size();
@@ -268,9 +280,9 @@ impl LiveOverlay {
         let height = (self.rect.bottom - self.rect.top) as u32;
         self.d3d.resize(width, height)?;
         let cursor = self.cursor_local();
-        let Some(srv) = &self.last_srv else {
+        if self.last_srv.is_none() {
             return Ok(());
-        };
+        }
         let offscreen = offscreen_radius(cursor, width as f32, height as f32, self.zoom);
         self.flashlight.update(dt, offscreen);
         let flashlight = self.is_active() && self.flashlight.visible(offscreen);
@@ -286,14 +298,14 @@ impl LiveOverlay {
         };
         let active = self.is_active();
         if active {
-            self.d3d.prepare_render(srv);
+            self.d3d.prepare_render(&self.last_srv);
             self.d3d.draw(params, 1)?;
         }
         if self.obs_enabled {
             if let Some(obs) = &mut self.obs_output {
                 obs.d3d.resize(width, height)?;
                 if !active {
-                    obs.d3d.prepare_render(srv);
+                    obs.d3d.prepare_render(&self.last_srv);
                 }
                 obs.d3d.draw(params, 0)?;
             }
@@ -363,6 +375,24 @@ impl LiveOverlay {
         self.flashlight.restart(fl_cfg, offscreen);
     }
 
+    fn srv_for_texture(
+        &mut self,
+        tex: &ID3D11Texture2D,
+    ) -> Result<ID3D11ShaderResourceView, String> {
+        let key = Interface::as_raw(tex) as usize;
+        for slot in &self.srv_cache {
+            if let Some((k, srv)) = slot {
+                if *k == key {
+                    return Ok(srv.clone());
+                }
+            }
+        }
+        let srv = self.d3d.create_srv(tex)?;
+        self.srv_cache[1] = self.srv_cache[0].take();
+        self.srv_cache[0] = Some((key, srv.clone()));
+        Ok(srv)
+    }
+
     fn on_raw_input(&mut self, lparam: LPARAM) {
         if !self.free_roam || !self.is_active() {
             return;
@@ -390,8 +420,11 @@ impl LiveOverlay {
 impl Drop for LiveOverlay {
     fn drop(&mut self) {
         unsafe {
-            let _ = ShowWindow(self.hwnd, SW_HIDE);
-            let _ = ShowCursor(true);
+            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
+            if self.visible {
+                let _ = ShowCursor(true);
+            }
+            let _ = DestroyWindow(self.hwnd);
         }
     }
 }
