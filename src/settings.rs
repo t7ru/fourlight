@@ -2,16 +2,17 @@ use std::mem::size_of;
 use std::sync::Once;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     CLIP_DEFAULT_PRECIS, COLOR_WINDOW, CreateFontW, DEFAULT_CHARSET, DEFAULT_QUALITY, DeleteObject,
-    FF_DONTCARE, FONT_WEIGHT, FW_NORMAL, FW_SEMIBOLD, GetSysColorBrush, HDC, HFONT, HGDIOBJ,
-    OUT_DEFAULT_PRECIS, SetBkMode, TRANSPARENT,
+    FF_DONTCARE, FONT_WEIGHT, FW_NORMAL, FW_SEMIBOLD, FillRect, GetDC, GetSysColorBrush,
+    GetTextExtentPoint32W, HDC, HFONT, HGDIOBJ, OUT_DEFAULT_PRECIS, ReleaseDC, SelectObject,
+    SetBkMode, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     BST_CHECKED, ICC_BAR_CLASSES, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
-    TBM_SETPOS, TBM_SETRANGE, TBS_NOTICKS, TRACKBAR_CLASS,
+    TBM_SETPOS, TBM_SETRANGE, TBS_NOTICKS, TBS_TRANSPARENTBKGND, TRACKBAR_CLASS,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     EnableWindow, GetAsyncKeyState, SetFocus, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN,
@@ -20,13 +21,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CREATESTRUCTW,
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    GWLP_USERDATA, GetMessageW, GetWindowLongPtrW, HICON, HMENU, IDC_ARROW, IMAGE_ICON, IsWindow,
-    LR_DEFAULTSIZE, LoadCursorW, LoadImageW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostMessageW,
-    RegisterClassW, SW_SHOW, SendMessageW, SetWindowLongPtrW, SetWindowTextW, ShowWindow,
-    TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CREATE,
-    WM_CTLCOLORBTN, WM_CTLCOLORSTATIC, WM_DESTROY, WM_HSCROLL, WM_KEYDOWN, WM_SETFONT,
-    WM_SYSKEYDOWN, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
-    WS_VISIBLE,
+    GWLP_USERDATA, GetClientRect, GetMessageW, GetWindowLongPtrW, HICON, HMENU, IDC_ARROW,
+    IMAGE_ICON, IsWindow, LR_DEFAULTSIZE, LoadCursorW, LoadImageW, MB_ICONERROR, MB_OK, MSG,
+    MessageBoxW, PostMessageW, RegisterClassW, SW_SHOW, SendMessageW, SetWindowLongPtrW,
+    SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE,
+    WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLORSTATIC, WM_DESTROY, WM_HSCROLL, WM_KEYDOWN,
+    WM_PRINTCLIENT, WM_SETFONT, WM_SYSKEYDOWN, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED,
+    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{PCWSTR, w};
 
@@ -46,6 +47,7 @@ pub fn close_if_open() {
 
 const TBM_GETPOS: u32 = 1024;
 const SS_RIGHT: WINDOW_STYLE = WINDOW_STYLE(0x0002);
+const SS_ETCHEDHORZ: WINDOW_STYLE = WINDOW_STYLE(0x0010);
 
 const ID_HOTKEY: i32 = 101;
 const ID_FLASHLIGHT: i32 = 103;
@@ -59,11 +61,12 @@ const ID_SAVE: i32 = 1;
 const ID_CANCEL: i32 = 2;
 
 const W: i32 = 600;
-const H: i32 = 548;
+const H: i32 = 672;
 const M: i32 = 24;
 const LABEL_W: i32 = 130;
 const VALUE_W: i32 = 70;
 const CONTROL_W: i32 = W - M * 2 - LABEL_W - VALUE_W - 16;
+const SECTION_BODY: i32 = 32;
 
 struct Dialog {
     draft: Config,
@@ -190,6 +193,12 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             build_ui(hwnd, cs.hInstance, dialog);
             LRESULT(0)
         }
+        WM_PRINTCLIENT => {
+            let mut rc = RECT::default();
+            let _ = GetClientRect(hwnd, &mut rc);
+            let _ = FillRect(HDC(wp.0 as _), &rc, GetSysColorBrush(COLOR_WINDOW));
+            LRESULT(0)
+        }
         WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => {
             let _ = SetBkMode(HDC(wp.0 as _), TRANSPARENT);
             LRESULT(GetSysColorBrush(COLOR_WINDOW).0 as isize)
@@ -267,8 +276,8 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
     );
 
     section(hwnd, instance, w!("Hotkey"), 86, d);
-    row_label(hwnd, instance, w!("Shortcut"), 116, d.font);
-    d.hotkey = hotkey_button(hwnd, instance, ID_HOTKEY, M + LABEL_W, 112, d.font);
+    row_label(hwnd, instance, w!("Shortcut"), 122, d.font);
+    d.hotkey = hotkey_button(hwnd, instance, ID_HOTKEY, M + LABEL_W, 118, d.font);
 
     section(hwnd, instance, w!("Zoom"), 164, d);
     d.free_roam = checkbox(
@@ -276,51 +285,51 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
         instance,
         ID_FREE_ROAM,
         w!("Cursor can leave screen"),
-        M + LABEL_W,
-        160,
+        M,
+        164 + SECTION_BODY,
         d.font,
     );
-    d.zoom_value = value(hwnd, instance, 194, d.font);
-    d.zoom = slider(hwnd, instance, ID_ZOOM, 192);
+    d.zoom_value = value(hwnd, instance, 230, d.font);
+    d.zoom = slider(hwnd, instance, ID_ZOOM, 228);
 
-    section(hwnd, instance, w!("Flashlight"), 242, d);
+    section(hwnd, instance, w!("Flashlight"), 276, d);
     d.flashlight = checkbox(
         hwnd,
         instance,
         ID_FLASHLIGHT,
         w!("Enable on zoom"),
-        M + LABEL_W,
-        238,
+        M,
+        276 + SECTION_BODY,
         d.font,
     );
-    d.radius_value = value(hwnd, instance, 278, d.font);
-    d.radius = slider(hwnd, instance, ID_RADIUS, 276);
-    d.shadow_value = value(hwnd, instance, 314, d.font);
-    d.shadow = slider(hwnd, instance, ID_SHADOW, 312);
+    d.radius_value = value(hwnd, instance, 342, d.font);
+    d.radius = slider(hwnd, instance, ID_RADIUS, 340);
+    d.shadow_value = value(hwnd, instance, 376, d.font);
+    d.shadow = slider(hwnd, instance, ID_SHADOW, 374);
 
-    row_label(hwnd, instance, w!("Default zoom"), 196, d.font);
-    row_label(hwnd, instance, w!("Radius"), 280, d.font);
-    row_label(hwnd, instance, w!("Shadow"), 316, d.font);
+    row_label(hwnd, instance, w!("Default zoom"), 232, d.font);
+    row_label(hwnd, instance, w!("Radius"), 344, d.font);
+    row_label(hwnd, instance, w!("Shadow"), 378, d.font);
 
-    section(hwnd, instance, w!("OBS"), 350, d);
+    section(hwnd, instance, w!("OBS"), 422, d);
     d.obs_output = checkbox(
         hwnd,
         instance,
         ID_OBS_OUTPUT,
         w!("Virtual display for OBS"),
-        M + LABEL_W,
-        346,
+        M,
+        422 + SECTION_BODY,
         d.font,
     );
 
-    section(hwnd, instance, w!("Launch"), 398, d);
+    section(hwnd, instance, w!("Launch"), 498, d);
     d.open_on_launch = checkbox(
         hwnd,
         instance,
         ID_OPEN_ON_LAUNCH,
         w!("Open settings on launch"),
-        M + LABEL_W,
-        394,
+        M,
+        498 + SECTION_BODY,
         d.font,
     );
 
@@ -330,7 +339,7 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
         ID_CANCEL,
         w!("Cancel"),
         W - M - 188,
-        454,
+        578,
         false,
         d.font,
     );
@@ -340,7 +349,7 @@ unsafe fn build_ui(hwnd: HWND, instance: HINSTANCE, d: &mut Dialog) {
         ID_SAVE,
         w!("Save"),
         W - M - 92,
-        454,
+        578,
         true,
         d.font,
     );
@@ -503,7 +512,28 @@ unsafe fn label(
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn section(parent: HWND, instance: HINSTANCE, text: PCWSTR, y: i32, d: &Dialog) {
-    label(parent, instance, text, M, y, 180, 22, d.section_font);
+    const GAP: i32 = 10;
+    let hdc = GetDC(Some(parent));
+    let prev = SelectObject(hdc, HGDIOBJ(d.section_font.0));
+    let mut size = SIZE::default();
+    let _ = GetTextExtentPoint32W(hdc, text.as_wide(), &mut size);
+    let _ = SelectObject(hdc, prev);
+    let _ = ReleaseDC(Some(parent), hdc);
+    let title_w = size.cx.max(1);
+    label(parent, instance, text, M, y, title_w, 22, d.section_font);
+    let line_x = M + title_w + GAP;
+    control(
+        parent,
+        instance,
+        w!("STATIC"),
+        w!(""),
+        0,
+        SS_ETCHEDHORZ,
+        line_x,
+        y + 9,
+        (W - M - line_x).max(0),
+        2,
+    );
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -562,7 +592,7 @@ unsafe fn slider(parent: HWND, instance: HINSTANCE, id: i32, y: i32) -> HWND {
         TRACKBAR_CLASS,
         w!(""),
         id,
-        WINDOW_STYLE(TBS_NOTICKS as u32),
+        WINDOW_STYLE(TBS_NOTICKS as u32 | TBS_TRANSPARENTBKGND as u32),
         M + LABEL_W,
         y,
         CONTROL_W,
@@ -589,7 +619,7 @@ unsafe fn checkbox(
         WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
         x,
         y,
-        180,
+        W - M * 2,
         24,
     );
     set_font(hwnd, font);
