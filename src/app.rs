@@ -127,8 +127,13 @@ impl App {
             }
         }
         if let Some(hk) = &mut self.hotkeys {
-            if let Err(err) = hk.register(self.config.to_hotkey().unwrap()) {
-                eprintln!("hotkey register failed: {err}");
+            match self.config.to_hotkey() {
+                Ok(hotkey) => {
+                    if let Err(err) = hk.register(hotkey) {
+                        eprintln!("hotkey register failed: {err}");
+                    }
+                }
+                Err(err) => eprintln!("invalid hotkey: {err}"),
             }
         }
     }
