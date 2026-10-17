@@ -104,6 +104,7 @@ pub struct LiveOverlay {
     flashlight: Flashlight,
     obs_output: Option<ObsOutput>,
     obs_enabled: bool,
+    obs_dirty: bool,
 }
 
 impl LiveOverlay {
@@ -161,6 +162,7 @@ impl LiveOverlay {
                 flashlight: Flashlight::from_config(&FlashlightConfig::default()),
                 obs_output,
                 obs_enabled,
+                obs_dirty: true,
             })
         }
     }
@@ -185,7 +187,10 @@ impl LiveOverlay {
             }
             self.obs_output = None;
             match create_obs_output(&self.d3d, self.rect, hwnd) {
-                Ok(output) => self.obs_output = Some(output),
+                Ok(output) => {
+                    self.obs_output = Some(output);
+                    self.obs_dirty = true;
+                }
                 Err(err) => eprintln!("OBS output failed: {err}"),
             }
         } else {
@@ -271,8 +276,13 @@ impl LiveOverlay {
             self.srv_generation = current_gen;
             self.last_srv = None;
         }
+        let new_frame = tex.is_some();
         if let Some(tex) = tex {
             self.last_srv = Some(self.srv_for_texture(&tex)?);
+        }
+
+        if !self.is_active() && !new_frame && !self.obs_dirty {
+            return Ok(());
         }
 
         let size = self.capture.size();
@@ -308,6 +318,7 @@ impl LiveOverlay {
                     obs.d3d.prepare_render(&self.last_srv);
                 }
                 obs.d3d.draw(params, 0)?;
+                self.obs_dirty = false;
             }
         }
         self.d3d.finish_render();
